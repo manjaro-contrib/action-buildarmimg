@@ -15,26 +15,16 @@ inputs:
     description: 'stable (default), testing, unstable'
     required: false
     default: stable
-  version:
+  release-tag:
     description: 'image version'
-    required: false
-    default: "YY.MM"
+    required: true
   overlay-repo:
     description: 'custom overlay repo'
     required: false
-  imgtype:
+  img-type:
     description: 'image type: normal (default), factory'
     required: false
     default: normal
-#  CI_PUB_KEY:
-#    description: 'public gpg key to use'
-#    required: true
-#  CI_GPG_SECRET: 
-#    description: 'private key to use'
-#    required: true
-#  CI_GPG_PASSPHRASE: 
-#    description: 'passphrase for private key'
-#    required: true
 outputs:
   file-pkg:
     description: "compressed files"
@@ -45,12 +35,6 @@ outputs:
   file-sha256:
     description: "checksum file for the image"
     value: ${{ steps.build.outputs.file-sha256 }}
-  file-torrent:
-    description: "torrent file for the image"
-    value: ${{ steps.build.outputs.file-torrent }}
-  file-signature:
-    description: "signature file for the image"
-    value: ${{ steps.build.outputs.file-signature }}
 runs:
   using: "composite"
   steps:
@@ -164,17 +148,14 @@ runs:
       run: |
         sudo git clone --depth 1 ${REPO} arm-profiles         
     -
-      id: build
+      id: image-build
       shell: bash
       env:
         DEVICE: ${{ inputs.device }}
         EDITION: ${{ inputs.edition }}
         BRANCH: ${{ inputs.branch }}
-        VERSION: ${{ inputs.version }}
-        IMGTYPE: ${{ inputs.imgtype }}
-        #CI_PUB_KEY: ${{ inputs.CI_PUB_KEY }}
-        #CI_GPG_SECRET: ${{ inputs.CI_GPG_SECRET }}
-        #CI_GPG_PASSPHRASE: ${{ inputs.CI_GPG_PASSPHRASE }}
+        VERSION: ${{ inputs.branch }}-${{ inputs.release-tag }}
+        IMGTYPE: ${{ inputs.img-type }}
       run: |
         [ "$IMGTYPE" != "factory" ] && unset IMGTYPE
         sudo mv -v $GITHUB_WORKSPACE/arm-profiles /usr/share/manjaro-arm-tools/profiles
@@ -190,66 +171,49 @@ runs:
         cp -v $FILE_PATH .
         echo "file-path=$(basename $FILE_PATH)" >> $GITHUB_OUTPUT
           
-        sha256sum $(basename $FILE_PATH) > $(basename $FILE_PATH).sha256
-        echo "file-sha256=$(basename $FILE_PATH).sha256" >> $GITHUB_OUTPUT
-        mktorrent -v -a udp://tracker.opentrackr.org:1337 -l 21 -w https://github.com/$GITHUB_REPOSITORY/releases/download/$VERSION/$(basename $FILE_PATH) -o $(basename $FILE_PATH).torrent $(basename $FILE_PATH)
-        echo "file-torrent=$(basename $FILE_PATH).torrent" >> $GITHUB_OUTPUT
-        
-        # Do GPG signing
-        #echo "setup values"
-        #GPG_HOMEDIR="$(mktemp -d -t gnupg.XXX)"
-        #SECRET_KEY_FILE="$GPG_HOMEDIR/secret.key"
-        #PUBLIC_KEY_FILE="$GPG_HOMEDIR/public_key.gpg"
-        #PASSPHRASE_FILE="$GPG_HOMEDIR/passphrase.file"
-        #GPG="gpg --homedir=$GPG_HOMEDIR --no-tty --batch --yes"
-          
-        #echo "unpack public key"
-        #echo "$CI_PUB_KEY" | base64 --decode > "$PUBLIC_KEY_FILE"
-
-        #echo "unpack secret key"
-        #echo "$CI_GPG_SECRET" | base64 --decode > "$SECRET_KEY_FILE"
-          
-        #echo "passphrase"
-        #echo "$CI_GPG_PASSPHRASE" > "$PASSPHRASE_FILE"
-          
-        #echo "Secrets unpacked..."
-
-        #paperkey --pubring "$PUBLIC_KEY_FILE" --secrets "$SECRET_KEY_FILE" \
-        #| $GPG --import &>/dev/null
-
-        #$GPG --pinentry-mode loopback --detach-sign --use-agent -u "$CI_GPG_KEY" --passphrase-file "$PASSPHRASE_FILE" $(basename $FILE_PATH)
-
-        #ls -lasih
-          
-        #echo "Verifying file"
-        #$GPG --verify $(basename $FILE_PATH).sig $(basename $FILE_PATH)
-        #echo "file-signature=$(basename $FILE_PATH).sig" >> $GITHUB_OUTPUT
-          
-        #echo "cleaning up"
-        #find "$GPG_HOMEDIR" -type f -exec shred {} \;
-        #rm -rf "$GPG_HOMEDIR"
-        #echo "script done"
-          
-        # Copy filepaths
-        echo "FILE_PATH=$(basename $FILE_PATH)" >> $GITHUB_ENV
-        echo "FILE_SHA256=$(basename $FILE_PATH).sha256" >> $GITHUB_ENV
-        echo "FILE_TORRENT=$(basename $FILE_PATH).torrent" >> $GITHUB_ENV
-        #echo "FILE_SIG=$(basename $FILE_PATH).sig" >> $GITHUB_ENV
-          
         FILE_PKG=$(find /var/cache/manjaro-arm-tools/img -type f -name "*-pkgs.txt" -exec stat -c '%Y %n' {} \; | sort -nr | awk 'NR==1 {print $2}')
-        cp -v $FILE_PKG .
+        cp -v $FILE_PKG ${FILE_PATH}.pkgs
         echo "file-pkg=$(basename $FILE_PKG)" >> $GITHUB_OUTPUT
-        echo "FILE_PKG=$(basename $FILE_PKG)" >> $GITHUB_ENV
+    - id: hash
+      shell: bash
+      run: |
+        echo "## calculating hashes"
+        sha1sum ${{ steps.image-build.outputs.file-path }} >${{ steps.image-build.outputs.file-path }}.sha1
+        sha256sum ${{ steps.image-build.outputs.file-path }} >${{ steps.image-build.outputs.file-path }}.sha256
+        sha512sum ${{ steps.image-build.outputs.file-path }} >${{ steps.image-build.outputs.file-path }}.sha512
+    - id: upload-prepare
+      shell: bash -O extglob {0}
+      run: |
+        echo "upload-files=./${{ steps.image-build.outputs.file-path }}+(|.sha*|.pkgs)" >> $GITHUB_OUTPUT
+        mkdir -p ${{ inputs.edition }}/${{ inputs.version }}
+    - id: upload-github-release
+      shell: bash -O extglob {0}
+      env:
+        LIMIT_MB: '2000'
+      run: |
+        # if is not yet supported in composite https://github.com/actions/runner/blob/main/docs/adrs/0549-composite-run-steps.md#if-condition
+        if [ -z "${{ inputs.release-tag }}" ]; then 
+          echo "## no release tag given"
+          exit 0
+        fi
+        echo "## github upload"
 
-#    -
-#      id: gpg_sign
-#      shell: bash
-#      run: |
-#        if [ -z "${{ inputs.CI_GPG_SECRET }}" ]; then 
-#          echo "no gpg secret given"
-#          exit 0
-#        fi
-#        cat <(echo -e "${{ inputs.CI_GPG_SECRET }}" | base64 --decode) | gpg --batch --import
-#        shopt -s extglob
-#        gpg --pinentry-mode loopback --passphrase "${{ inputs.CI_GPG_PASSPHRASE }}" --detach-sign $(basename $FILE_PATH)
-#        echo "FILE_SIG=$(basename $FILE_PATH).sig" >> $GITHUB_ENV
+        echo ${{ github.token }} | gh auth login --with-token
+        gh release create ${{ inputs.release-tag }} --title ${{ inputs.release-tag }} --repo ${{ github.repository }} --notes "automated release" || echo "release already exists"
+
+        GITHUB_LINK=https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ inputs.release-tag }}
+
+        ls -lah
+
+        if [[ -z "$(du --threshold=${LIMIT_MB}M ${{ steps.image-build.outputs.file-path }})" ]]; then
+          # iso is small enough to upload already
+          gh release upload ${{ inputs.release-tag }} --repo ${{ github.repository }} --clobber \
+            ${{ steps.upload-prepare.outputs.upload-files }}
+        else
+          # iso is too big - creating a split-zip
+          zip -j -s ${LIMIT_MB}m ${{ steps.image-build.outputs.file-path }}.zip ${{ steps.image-build.outputs.file-path }}
+          
+          REMOTE_FILES=$(find . -maxdepth 1 -name "*.z*" -exec basename {} \; | xargs -I{} echo "-w \"${GITHUB_LINK}/{}\"")
+          gh release upload ${{ inputs.release-tag }} --repo ${{ github.repository }} --clobber \
+            ./${{ steps.image-build.outputs.file-path }}+(.z*|.img.xz|.sha*|.pkgs|)
+        fi
