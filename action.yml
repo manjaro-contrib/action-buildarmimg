@@ -28,13 +28,10 @@ inputs:
 outputs:
   file-pkg:
     description: "compressed files"
-    value: ${{ steps.build.outputs.file-pkg }}
+    value: ${{ steps.image-build.outputs.file-pkg }}
   file-path:
     description: "path of the generated image"
-    value: ${{ steps.build.outputs.file-path }}
-  file-sha256:
-    description: "checksum file for the image"
-    value: ${{ steps.build.outputs.file-sha256 }}
+    value: ${{ steps.image-build.outputs.file-path }}
 runs:
   using: "composite"
   steps:
