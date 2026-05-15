@@ -40,7 +40,7 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt install \
+        sudo apt-get install -y \
           gdisk \
           zip \
           systemd-container \
@@ -57,20 +57,14 @@ runs:
           fakeroot \
           dh-autoreconf \
           qemu-utils \
-          qemu-efi-aarch64 \
-          qemu-system-arm \
-          qemu-user-static \
+          meson \
+          ninja-build \
           mktorrent \
           paperkey \
           gpg \
           ca-certificates \
-          u-boot-tools
-        sudo pip3 install meson
-        sudo pip3 install ninja
-        
-        # For generic-efi support
-        wget http://ports.ubuntu.com/pool/main/g/grub2-unsigned/grub-efi-arm64-bin_2.06-2ubuntu14.1_arm64.deb
-        sudo dpkg -x grub-efi-arm64-bin_2.06-2ubuntu14.1_arm64.deb /
+          u-boot-tools \
+          grub-efi-arm64-bin
           
     - id: cache-pacman
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -133,12 +127,6 @@ runs:
         sudo mkdir -p /etc/pacman.d
         sudo touch /etc/pacman.d/mirrorlist
     -
-      name: setup-qemu-binfmt
-      shell: bash
-      run: |
-        sudo wget https://gitlab.manjaro.org/manjaro-arm/packages/manjaro-arm-qemu-static/-/raw/master/qemu-static.conf -O /usr/lib/binfmt.d/qemu-static.conf
-        sudo service systemd-binfmt restart
-    - 
       name: install-arch-install-scripts
       shell: bash
       env:
